@@ -5,10 +5,6 @@ use Net::DNS::SEC;
 use Net::IDN::Encode qw(:all);
 use Net::RDAP;
 use constant {
-    DB_HOST                 => 'localhost',
-    DB_NAME                 => 'rdap_deployment',
-    DB_USERNAME             => 'rdap_deployment',
-    DB_PASSWORD             => '',
     TLD_LIST_URL            => 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt',
     RDAP_BOOTSTRAP_URL      => 'https://data.iana.org/rdap/dns.json',
     IANA_ROOT_DB_URL        => 'https://importhtml.site/csv/?url=https%3A//www.iana.org/domains/root/db',
@@ -65,13 +61,7 @@ foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
 say STDERR 'retrieved DUM values';
 
 my $db = DBI->connect(
-    sprintf(
-        'DBI:MariaDB:host=%s;database=%s',
-        DB_HOST,
-        DB_NAME,
-    ),
-    DB_USERNAME,
-    DB_PASSWORD,
+    sprintf('dbi:SQLite:dbname='.$ARGV[0]),
     {
         'RaiseError' => 1,
         'AutoCommit' => 1,
