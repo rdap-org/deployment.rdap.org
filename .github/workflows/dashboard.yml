@@ -28,7 +28,7 @@ jobs:
 
       - name: install packages
         run: |
-          apt -qqq install nodejs curl jq jo gcc cpanminus libdbd-sqlite3-perl \
+          apt -qqq install git nodejs curl jq jo gcc cpanminus libdbd-sqlite3-perl \
             libdbi-perl liblwp-protocol-https-perl libjson-xs-perl \
             libtext-csv-xs-perl libdevel-confess-perl libxml-libxml-perl \
             libyaml-libyaml-perl libnet-dns-sec-perl libnet-ip-perl \
