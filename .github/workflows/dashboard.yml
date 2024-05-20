@@ -20,9 +20,6 @@ jobs:
       id-token: write
       pages: write
     steps:
-      - name: checkout
-        uses: actions/checkout@v4
-
       - name: update package index
         run: apt -qqq update
 
@@ -33,6 +30,9 @@ jobs:
             libtext-csv-xs-perl libdevel-confess-perl libxml-libxml-perl \
             libyaml-libyaml-perl libnet-dns-sec-perl libnet-ip-perl \
             libmime-types-perl libdatetime-format-iso8601-perl
+
+      - name: checkout
+        uses: actions/checkout@v4
 
       - name: install perl modules
         run: |
