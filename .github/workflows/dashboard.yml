@@ -1,0 +1,91 @@
+name: Generate Dashboard
+
+on:
+ schedule:
+   - cron: "36 0 * * *"
+ workflow_dispatch:
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  DB_FILENAME: dashboard.db
+  B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID }}
+  B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+  B2_BUCKET_ID: ${{ secrets.B2_BUCKET_ID }}
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    container: ubuntu:latest
+    permissions:
+      id-token: write
+      pages: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: update package index
+        run: apt -qqq update
+
+      - name: install packages
+        run: |
+          apt -qqq install nodejs curl jq jo gcc cpanminus libdbd-sqlite3-perl \
+            libdbi-perl liblwp-protocol-https-perl libjson-xs-perl \
+            libtext-csv-xs-perl libdevel-confess-perl libxml-libxml-perl \
+            libyaml-libyaml-perl libnet-dns-sec-perl libnet-ip-perl \
+            libmime-types-perl libdatetime-format-iso8601-perl
+
+      - name: install perl modules
+        run: |
+          cpanm -qn Data::Mirror Net::RDAP Net::IDN::Encode HTML::Tiny \
+            Object::Anon Number::Format
+
+      - name: authenticate with b2
+        run: |
+          curl --silent --fail --basic \
+            --user "$B2_APPLICATION_KEY_ID:$B2_APPLICATION_KEY" \
+            --output b2.json \
+            https://api.backblazeb2.com/b2api/v3/b2_authorize_account
+
+      - name: download database
+        run: |
+          curl --silent --fail \
+            --header "Authorization: $(jq -r .authorizationToken b2.json)" \
+            --output "$DB_FILENAME" \
+            "$(jq -r .apiInfo.storageApi.downloadUrl b2.json)/file/rdap-deployment/$DB_FILENAME" \
+            || true
+
+      - name: generate dashboard
+        run: |
+          mkdir _site
+          cp sorttable.js _site/
+          ./deployment.pl "$DB_FILENAME" > _site/index.html
+
+      - name: upload dashboard
+        run: |
+          curl --silent --fail \
+            --header "Authorization: $(jq -r .authorizationToken b2.json)" \
+            --output upload.json \
+            --data "$(jo bucketId=$B2_BUCKET_ID)" \
+            "$(jq -r .apiInfo.storageApi.apiUrl b2.json)/b2api/v3/b2_get_upload_url"
+
+          curl --silent --fail \
+            --header "Authorization: $(jq -r .authorizationToken upload.json)" \
+            --header "Content-Type: application/octet-stream" \
+            --header "Content-Length: $(wc -c "$DB_FILENAME" | cut -d " " -f 1)" \
+            --header "X-Bz-File-Name: $DB_FILENAME" \
+            --header "X-Bz-Content-Sha1: $(sha1sum -b "$DB_FILENAME" | cut -d " " -f 1)" \
+            --data-binary "@$DB_FILENAME" \
+            --output /dev/null \
+            "$(jq -r .uploadUrl upload.json)"
+
+      - name: clean up
+        run: rm -f b2.json upload.json
+
+      - name: configure
+        uses: actions/configure-pages@v4
+
+      - name: upload
+        uses: actions/upload-pages-artifact@v3
+
+      - name: deploy
+        uses: actions/deploy-pages@v4
