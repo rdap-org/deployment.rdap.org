@@ -20,7 +20,6 @@ jobs:
     container: alpine:latest
 
     permissions:
-      id-token: write
       pages: write
 
     steps:
@@ -99,7 +98,7 @@ jobs:
           cp ./sorttable.js _site/
           ./deployment.pl "$DB_FILENAME" > _site/index.html
 
-      - name: upload dashboard
+      - name: upload database
         run: |
           curl --silent --fail \
             --header "Authorization: $(jq -r .authorizationToken b2.json)" \
