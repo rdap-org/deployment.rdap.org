@@ -18,6 +18,8 @@ permissions:
 jobs:
   checkout:
     runs-on: ubuntu-latest
+
+    steps:
       - name: checkout
         uses: actions/checkout@v4
 
