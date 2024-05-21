@@ -2,10 +2,10 @@
 use DBI;
 use Data::Mirror qw(mirror_fh mirror_json mirror_csv);
 use Net::DNS::SEC;
-use Net::LibIDN qw(:all);
 use Net::RDAP;
 use Number::Format qw(:subs);
 use HTML::Tiny;
+use IPC::Open2;
 use JSON::XS;
 use Object::Anon;
 use constant {
@@ -310,7 +310,7 @@ while (my $ref = $sth->fetchrow_hashref) {
     push (@rows, $ref);
 }
 
-foreach my $ref (sort { idn_to_unicode($a->{'tld'}) cmp idn_to_unicode($b->{'tld'}) } @rows) {
+foreach my $ref (sort @rows) {
     say($h->open('tr', {scope => 'row'}));
 
     my $row = anon $ref;
@@ -324,7 +324,7 @@ foreach my $ref (sort { idn_to_unicode($a->{'tld'}) cmp idn_to_unicode($b->{'tld
     $stats->{'all'}->[1+$row->rdap]->[1] += $row->dums;
     $stats->{$stats_type}->[1+$row->rdap]->[1] += $row->dums;
 
-    say($h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld)));
+    say($h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.($row->tld =~ /^xn--/i ? idn_to_unicode($row->tld) : $row->tld)));
     say($h->td({class => 'text-center type'}, $row->type));
     say($h->td({class => 'text-right dums'}, format_number($row->dums)));
     say($h->td({class => 'text-center text-'.($row->rdap ? 'success' : 'danger')}, $row->rdap ? 'Yes' : 'No'));
@@ -417,3 +417,27 @@ sub clean_int {
     $int =~ s/[^\d]//g;
     return int($int);
 }
+
+sub idn2 {
+    my ($input, @args) = @_;
+
+    my $pid = open2(my $out, my $in, q{idn2}, @args);
+
+    $in->binmode(':utf8');
+    $in->print($input)."\n";
+    $in->close;
+
+    $out->binmode(':utf8');
+
+    my $output = $out->getline;
+    chomp($output);
+
+    $out->close;
+
+    waitpid($pid, 0);
+
+    return $output;
+}
+
+sub idn_to_unicode  { idn2(qw(--quiet --decode), @_) }
+sub idn_to_ascii    { idn2(qw(--quiet), @_) }

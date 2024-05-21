@@ -38,6 +38,7 @@ jobs:
             gcc \
             make \
             tar \
+            idn2-utils \
             perl-app-cpanminus \
             perl-class-accessor \
             perl-class-accessor-chained \
@@ -56,7 +57,6 @@ jobs:
             perl-moo \
             perl-net-dns-sec \
             perl-net-ip \
-            perl-net-libidn \
             perl-path-tiny \
             perl-test-exception \
             perl-test-most \
@@ -95,9 +95,8 @@ jobs:
 
       - name: generate dashboard
         run: |
-          ls -lh
-          mkdir _site
-          cp ./sorttable.js _site/
+          mkdir -v _site
+          cp -v ./sorttable.js _site/
           ./deployment.pl "$DB_FILENAME" > _site/index.html
 
       - name: upload database
