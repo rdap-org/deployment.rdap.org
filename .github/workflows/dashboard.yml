@@ -95,8 +95,9 @@ jobs:
 
       - name: generate dashboard
         run: |
+          ls -lh
           mkdir _site
-          cp sorttable.js _site/
+          cp ./sorttable.js _site/
           ./deployment.pl "$DB_FILENAME" > _site/index.html
 
       - name: upload dashboard
