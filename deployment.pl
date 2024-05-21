@@ -147,7 +147,7 @@ foreach my $tld (map { chomp ; lc } grep { /^[A-Z0-9-]+$/ } mirror_fh(TLD_LIST_U
     	}
     }
 
-    my @values = ($type{$tld}, map { int } ($rdap, $https, $dnssec, $dane, $dums{$tld}, $rdap), $date);
+    my @values = ($type{$tld}, map { int } ($rdap, $https, $dnssec, $dane, $dums{$tld}), $date);
 
     $sth->execute($tld, @values, @values);
 
