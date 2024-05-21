@@ -2,7 +2,7 @@
 use DBI;
 use Data::Mirror qw(mirror_fh mirror_json mirror_csv);
 use Net::DNS::SEC;
-use Net::IDN::Encode qw(:all);
+use Net::LibIDN qw(:all);
 use Net::RDAP;
 use Number::Format qw(:subs);
 use HTML::Tiny;
@@ -310,7 +310,7 @@ while (my $ref = $sth->fetchrow_hashref) {
     push (@rows, $ref);
 }
 
-foreach my $ref (sort { $a->{'tld'} cmp $b->{'tld'} } @rows) {
+foreach my $ref (sort { idn_to_unicode($a->{'tld'}) cmp idn_to_unicode($b->{'tld'}) } @rows) {
     say($h->open('tr', {scope => 'row'}));
 
     my $row = anon $ref;
@@ -324,7 +324,7 @@ foreach my $ref (sort { $a->{'tld'} cmp $b->{'tld'} } @rows) {
     $stats->{'all'}->[1+$row->rdap]->[1] += $row->dums;
     $stats->{$stats_type}->[1+$row->rdap]->[1] += $row->dums;
 
-    say($h->td({class => 'text-center tld'}, '.'.$row->tld));
+    say($h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld)));
     say($h->td({class => 'text-center type'}, $row->type));
     say($h->td({class => 'text-right dums'}, format_number($row->dums)));
     say($h->td({class => 'text-center text-'.($row->rdap ? 'success' : 'danger')}, $row->rdap ? 'Yes' : 'No'));
@@ -409,7 +409,7 @@ sub clean_tld {
     $tld =~ s/[\N{U+200E}]+$//g;
 
     # convert to A-label and lowercase
-    return lc(domain_to_ascii($tld));
+    return lc(idn_to_ascii($tld));
 }
 
 sub clean_int {

@@ -6,39 +6,73 @@ on:
  workflow_dispatch:
 
 env:
-  DEBIAN_FRONTEND: noninteractive
   DB_FILENAME: dashboard.db
   B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID }}
   B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
   B2_BUCKET_ID: ${{ secrets.B2_BUCKET_ID }}
 
-jobs:
-  generate:
-    runs-on: ubuntu-latest
+permissions:
+  id-token: write
+  pages: write
 
-    permissions:
-      id-token: write
-      pages: write
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    container: alpine:latest
 
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
       - name: update package index
-        run: apt -qqq update
+        run: apk -q update
 
       - name: install packages
         run: |
-          apt -qqq install git nodejs curl jq jo gcc cpanminus libdbd-sqlite3-perl \
-            libdbi-perl liblwp-protocol-https-perl libjson-xs-perl \
-            libtext-csv-xs-perl libdevel-confess-perl libxml-libxml-perl \
-            libyaml-libyaml-perl libnet-dns-sec-perl libnet-ip-perl \
-            libmime-types-perl libdatetime-format-iso8601-perl
+          apk -q add \
+            git \
+            nodejs \
+            curl \
+            jq \
+            jo \
+            gcc \
+            make \
+            perl-app-cpanminus \
+            perl-class-accessor \
+            perl-class-accessor-chained \
+            perl-class-method-modifiers \
+            perl-datetime-format-iso8601 \
+            perl-dbd-sqlite \
+            perl-extutils-config \
+            perl-file-slurp \
+            perl-json \
+            perl-json-xs \
+            perl-list-moreutils \
+            perl-lwp-protocol-https \
+            perl-mime-charset \
+            perl-mime-types \
+            perl-module-build \
+            perl-moo \
+            perl-net-dns-sec \
+            perl-net-ip \
+            perl-net-libidn \
+            perl-path-tiny \
+            perl-test-exception \
+            perl-test-most \
+            perl-text-csv_xs \
+            perl-text-vfile-asdata \
+            perl-unicode-linebreak \
+            perl-xml-libxml \
+            perl-yaml-libyaml
 
       - name: install perl modules
         run: |
-          cpanm -qn Data::Mirror Net::RDAP Net::IDN::Encode HTML::Tiny \
-            Object::Anon Number::Format
+          cpanm -qn \
+            Data::Mirror \
+            HTML::Tiny \
+            Net::RDAP \
+            Number::Format \
+            Object::Anon
 
       - name: authenticate with b2
         run: |
