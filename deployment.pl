@@ -310,7 +310,7 @@ while (my $ref = $sth->fetchrow_hashref) {
     push (@rows, $ref);
 }
 
-foreach my $ref (sort @rows) {
+foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
     say($h->open('tr', {scope => 'row'}));
 
     my $row = anon $ref;
