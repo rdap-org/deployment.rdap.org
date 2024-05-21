@@ -15,13 +15,6 @@ env:
   B2_BUCKET_ID: ${{ secrets.B2_BUCKET_ID }}
 
 jobs:
-  checkout:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-
   generate:
     runs-on: ubuntu-latest
     container: alpine:latest
@@ -30,14 +23,17 @@ jobs:
       id-token: write
       pages: write
 
-    needs: checkout
     steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
       - name: update package index
         run: apk -q update
 
       - name: install packages
         run: |
           apk -q add \
+            git \
             nodejs \
             curl \
             jq \
