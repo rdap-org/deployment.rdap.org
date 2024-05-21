@@ -8,6 +8,7 @@ use HTML::Tiny;
 use IPC::Open2;
 use JSON::XS;
 use Object::Anon;
+use POSIX qw(strftime);
 use constant {
     TLD_LIST_URL            => 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt',
     RDAP_BOOTSTRAP_URL      => 'https://data.iana.org/rdap/dns.json',
@@ -18,6 +19,8 @@ use constant {
 };
 use feature qw(say);
 use strict;
+
+my $TODAY = strftime("%Y-%m-%d", gmtime);
 
 $Data::Mirror::TTL_SECONDS = 3600;
 
@@ -95,10 +98,10 @@ my $sth = $db->prepare(q{
     INSERT INTO rdap_deployment_report
     (`tld`, `type`, `rdap`, `https`, `dnssec`, `dane`, `dums`, `rdap_enabled_on`)
     VALUES (
-        ?, ?, ?, ?, ?, ?, ?, (CASE WHEN ? > 0 THEN DATE() ELSE NULL END))
+        ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(`tld`) DO UPDATE
     SET `type`=?, `rdap`=?, `https`=?, `dnssec`=?, `dane`=?, `dums`=?,
-    `rdap_enabled_on`=COALESCE(`rdap_enabled_on`, (CASE WHEN ? > 0 THEN DATE() ELSE NULL END))
+    `rdap_enabled_on`=COALESCE(`rdap_enabled_on`, ?)
 });
 
 say STDERR 'connected to database, updating records...';
@@ -116,9 +119,11 @@ foreach my $tld (map { chomp ; lc } grep { /^[A-Z0-9-]+$/ } mirror_fh(TLD_LIST_U
 	my $rdap    = defined($enabled{$tld});
 	my $https   = $rdap && (0 < scalar(grep { 'https' eq $_->scheme } @{$enabled{$tld}}));
 
-	my ($dnssec, $dane);
+	my ($dnssec, $dane, $date);
 
     if ($rdap) {
+        $date = $TODAY;
+
     	URL: foreach my $url (@{$enabled{$tld}}) {
             my $host = lc($url->host);
 
@@ -142,7 +147,7 @@ foreach my $tld (map { chomp ; lc } grep { /^[A-Z0-9-]+$/ } mirror_fh(TLD_LIST_U
     	}
     }
 
-    my @values = ($type{$tld}, map { int } ($rdap, $https, $dnssec, $dane, $dums{$tld}, $rdap));
+    my @values = ($type{$tld}, map { int } ($rdap, $https, $dnssec, $dane, $dums{$tld}, $rdap), $date);
 
     $sth->execute($tld, @values, @values);
 
