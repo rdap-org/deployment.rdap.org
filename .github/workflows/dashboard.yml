@@ -20,7 +20,7 @@ jobs:
     container: alpine:latest
 
     permissions:
-      id-token: read
+      id-token: write
       pages: write
 
     steps:
