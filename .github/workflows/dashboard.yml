@@ -18,19 +18,20 @@ permissions:
 jobs:
   checkout:
     runs-on: ubuntu-latest
-    container: alpine:latest
-
-    steps:
       - name: checkout
         uses: actions/checkout@v4
 
+  generate:
+    runs-on: ubuntu-latest
+    container: alpine:latest
+
+    steps:
       - name: update package index
         run: apk -q update
 
       - name: install packages
         run: |
           apk -q add \
-            git \
             nodejs \
             curl \
             jq \
