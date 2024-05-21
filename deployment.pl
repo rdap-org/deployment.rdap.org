@@ -235,7 +235,7 @@ say <<"END";
 
 <div class="container">
 
-<p>This page tracks the deployment of <a href="https://about.rdap.org">RDAP</a> among <a href="https://en.wikipedia.org/wiki/Top-level_domain" rel="noopener" target="_new">top-level domains</a>. It is updated once per day.</p>
+<p>This page tracks the deployment of <a href="https://about.rdap.org">RDAP</a> among <a href="https://en.wikipedia.org/wiki/Top-level_domain" rel="noopener" target="_new">top-level domains</a>. It is updated once per day <em>(last update: $TODAY)</em>.</p>
 
 <p>Description of columns:</p>
 <ul>
