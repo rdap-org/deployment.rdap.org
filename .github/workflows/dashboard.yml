@@ -37,6 +37,7 @@ jobs:
             jo \
             gcc \
             make \
+            tar \
             perl-app-cpanminus \
             perl-class-accessor \
             perl-class-accessor-chained \
