@@ -227,6 +227,9 @@ say <<"END";
       <li class="nav-item">
         <a class="nav-link active" href="https://deployment.rdap.org/">Deployment Dashboard</a>
       </li>
+      <li class="nav-item">
+        <a class="nav-link" href="https://validator.rdap.org/">Validator</a>
+      </li>
     </ul>
   </div>
 </nav>
