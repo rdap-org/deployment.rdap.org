@@ -171,6 +171,7 @@ say <<"END";
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://client.rdap.org/assets/bootstrap.min.css" />
+  <script type="module" src="https://about.rdap.org/assets/scaffold.js"></script>
   <script type="text/javascript" src="./sorttable.js"></script>
   <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
   <style>
@@ -209,33 +210,6 @@ END
 say($h->open('body'));
 
 say <<"END";
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
-  <span class="text-white font-weight-bold" style="font-size:larger">
-    <a class="navbar-brand" href="#">RDAP.ORG</a>
-  </span>
-  <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbar1" aria-controls="navbar1" aria-expanded="false" aria-label="Toggle navigation">
-    <span class="navbar-toggler-icon"></span>
-  </button>
-  <div class="collapse navbar-collapse" id="navbar1">
-    <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
-      <li class="nav-item">
-        <a class="nav-link" href="https://about.rdap.org/">Home</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="https://client.rdap.org/">Web Client</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link active" href="https://deployment.rdap.org/">Deployment Dashboard</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="https://validator.rdap.org/">Validator</a>
-      </li>
-    </ul>
-  </div>
-</nav>
-
-<br/>
-
 <div class="container">
 
 <p>This page tracks the deployment of <a href="https://about.rdap.org">RDAP</a> among <a href="https://en.wikipedia.org/wiki/Top-level_domain" rel="noopener" target="_new">top-level domains</a>. It is updated once per day <em>(last update: $TODAY)</em>.</p>
