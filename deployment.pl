@@ -72,7 +72,7 @@ eval {
 say STDERR 'retrieved DUM values';
 
 my $db = DBI->connect(
-    sprintf('dbi:SQLite:dbname='.$ARGV[0]),
+    'dbi:SQLite:dbname='.$ARGV[0],
     {
         'RaiseError' => 1,
         'AutoCommit' => 1,
@@ -89,7 +89,7 @@ $db->do(q{
         `dnssec` INTEGER,
         `dane` INTEGER,
         `dums` INTEGER,
-        `rdap_enabled_on` STRING,
+        `rdap_enabled_on` STRING DEFAULT NULL,
         UNIQUE(tld COLLATE NOCASE)
     )
 });

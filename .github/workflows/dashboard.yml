@@ -93,11 +93,18 @@ jobs:
             "$(jq -r .apiInfo.storageApi.downloadUrl b2.json)/file/rdap-deployment/$DB_FILENAME" \
             || true
 
-      - name: generate dashboard
+      - name: create site directory
         run: |
           mkdir -v _site
           cp -v ./sorttable.js _site/
+
+      - name: generate dashboard
+        run: |
           ./deployment.pl "$DB_FILENAME" > _site/index.html
+
+      - name: generate RSS feed
+        run: |
+          ./rss.pl "$DB_FILENAME" > _site/rss.xml
 
       - name: upload database
         run: |
