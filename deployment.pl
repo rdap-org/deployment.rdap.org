@@ -58,16 +58,24 @@ eval {
         $dums{clean_tld((split(/[ \r\n]+/, $row->[1], 2))[0])} = clean_int($row->[2]);
     }
 
+    say STDERR 'retrieved DUM stats from DomainTools';
+
     foreach my $row (@{mirror_csv(STATDNS_STATS_URL)}) {
         next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
         $dums{$row->[1]} = $row->[9];
     }
 
+    say STDERR 'retrieved DUM stats from StatDNS';
+
     foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
         next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
         $dums{clean_tld((split(/[ \r\n]+/, $row->[2], 2))[0])} = clean_int($row->[7]);
     }
+
+    say STDERR 'retrieved DUM stats from nTLDStats';
 };
+
+say STDERR $@ if ($@);
 
 say STDERR 'retrieved DUM values';
 
@@ -97,8 +105,7 @@ $db->do(q{
 my $sth = $db->prepare(q{
     INSERT INTO rdap_deployment_report
     (`tld`, `type`, `rdap`, `https`, `dnssec`, `dane`, `dums`, `rdap_enabled_on`)
-    VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(`tld`) DO UPDATE
     SET `type`=?, `rdap`=?, `https`=?, `dnssec`=?, `dane`=?, `dums`=?,
     `rdap_enabled_on`=COALESCE(`rdap_enabled_on`, ?)
