@@ -67,12 +67,15 @@ eval {
 
     say STDERR 'retrieved DUM stats from StatDNS';
 
-    foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
-        next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
-        $dums{clean_tld((split(/[ \r\n]+/, $row->[2], 2))[0])} = clean_int($row->[7]);
-    }
-
-    say STDERR 'retrieved DUM stats from nTLDStats';
+#    foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
+#        next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
+#
+#        my $tld = clean_tld([ split(/[ \r\n]+/, $row->[2], 2) ]->[0]);
+#
+#        $dums{$tld} = clean_int($row->[7]);
+#    }
+#
+#    say STDERR 'retrieved DUM stats from nTLDStats';
 };
 
 say STDERR $@ if ($@);
@@ -118,6 +121,7 @@ my $resolver = Net::DNS::Resolver->new(
     'dnssec'            => 1,
     'usevc'             => 1,
     'persistent_tcp'    => 1,
+    'tcp_timeout'       => 10,
 );
 
 my ($dnssecInfo, $daneInfo);
