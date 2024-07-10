@@ -179,8 +179,6 @@ say <<"END";
 <head>
   <meta charset="utf-8">
   <title>RDAP Deployment Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://client.rdap.org/assets/bootstrap.min.css">
   <link rel="alternate" type="application/rss+xml" href="rss.xml">
   <script type="module" src="https://about.rdap.org/assets/scaffold.js"></script>
   <script type="text/javascript" src="./sorttable.js"></script>
