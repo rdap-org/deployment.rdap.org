@@ -1,14 +1,20 @@
 #!/usr/bin/perl
+use Carp;
 use DBI;
-use Data::Mirror qw(mirror_fh mirror_json mirror_csv);
-use Net::DNS::SEC;
-use Net::RDAP;
-use Number::Format qw(:subs);
+use Data::Mirror qw(mirror_str mirror_fh mirror_json mirror_csv);
+use Encode qw(encode decode);
+use File::Basename qw(dirname);
+use File::Slurp;
+use File::Spec;
 use HTML::Tiny;
 use IPC::Open2;
 use JSON::XS;
+use Net::DNS::SEC;
+use Net::RDAP;
+use Number::Format qw(:subs);
 use Object::Anon;
 use POSIX qw(strftime);
+use Template::Liquid;
 use constant {
     TLD_LIST_URL            => 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt',
     RDAP_BOOTSTRAP_URL      => 'https://data.iana.org/rdap/dns.json',
@@ -16,13 +22,38 @@ use constant {
     DOMAINTOOLS_STATS_URL   => 'https://importhtml.site/csv/?url=https%3A//research.domaintools.com/statistics/tld-counts/&idx=2',
     STATDNS_STATS_URL       => 'https://importhtml.site/csv/?url=https%3A//www.statdns.com/',
     NTLDSTATS_STATS_URL     => 'https://importhtml.site/csv/?url=https%3A//ntldstats.com/tld/',
+    PAGE_TEMPLATE           => 'https://raw.githubusercontent.com/rdap-org/about.rdap.org/main/_layouts/page.html',
 };
+use utf8;
 use feature qw(say);
 use strict;
 
 my $TODAY = strftime("%Y-%m-%d", gmtime);
 
 $Data::Mirror::TTL_SECONDS = 3600;
+
+my @tlds = sort map { chomp ; lc } grep { /^[A-Z0-9-]+$/ } mirror_fh(TLD_LIST_URL)->getlines;
+
+say STDERR 'retrieved TLD list';
+
+my @idns = grep { /^xn--/ } @tlds;
+
+my $pid = open2(my $out, my $in, qw(idn2 --quiet --decode));
+
+$in->print(join("\n", @idns, ""));
+$in->close;
+
+my $ulabels = {};
+
+for (my $i = 0 ; $i < scalar(@idns) ; $i++) {
+    chomp ($ulabels->{$idns[$i]} = decode('UTF-8', $out->getline));
+}
+
+$out->close;
+
+waitpid($pid, 0);
+
+say STDERR 'generated U-label mapping';
 
 my %enabled;
 my $registry = Net::RDAP::Registry::IANARegistry->new(mirror_json(RDAP_BOOTSTRAP_URL));
@@ -59,23 +90,27 @@ eval {
     }
 
     say STDERR 'retrieved DUM stats from DomainTools';
+};
 
+eval {
     foreach my $row (@{mirror_csv(STATDNS_STATS_URL)}) {
         next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
         $dums{$row->[1]} = $row->[9];
     }
 
     say STDERR 'retrieved DUM stats from StatDNS';
+};
 
-#    foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
-#        next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
-#
-#        my $tld = clean_tld([ split(/[ \r\n]+/, $row->[2], 2) ]->[0]);
-#
-#        $dums{$tld} = clean_int($row->[7]);
-#    }
-#
-#    say STDERR 'retrieved DUM stats from nTLDStats';
+eval {
+    foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
+        next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
+
+        my $tld = clean_tld([ split(/[ \r\n]+/, $row->[2], 2) ]->[0]);
+
+        $dums{$tld} = clean_int($row->[7]);
+    }
+
+    say STDERR 'retrieved DUM stats from nTLDStats';
 };
 
 say STDERR $@ if ($@);
@@ -117,7 +152,7 @@ my $sth = $db->prepare(q{
 say STDERR 'connected to database, updating records...';
 
 my $resolver = Net::DNS::Resolver->new(
-    'nameservers'       => [qw(9.9.9.9 8.8.8.8 1.1.1.1)],
+    'nameservers'       => [qw(1.1.1.1)],
     'dnssec'            => 1,
     'usevc'             => 1,
     'persistent_tcp'    => 1,
@@ -125,9 +160,9 @@ my $resolver = Net::DNS::Resolver->new(
 );
 
 my ($dnssecInfo, $daneInfo);
-foreach my $tld (map { chomp ; lc } grep { /^[A-Z0-9-]+$/ } mirror_fh(TLD_LIST_URL)->getlines) {
+foreach my $tld (@tlds) {
 
-	my $rdap    = defined($enabled{$tld});
+	my $rdap    = exists($enabled{$tld});
 	my $https   = $rdap && (0 < scalar(grep { 'https' eq $_->scheme } @{$enabled{$tld}}));
 
 	my ($dnssec, $dane, $date);
@@ -138,16 +173,16 @@ foreach my $tld (map { chomp ; lc } grep { /^[A-Z0-9-]+$/ } mirror_fh(TLD_LIST_U
     	URL: foreach my $url (@{$enabled{$tld}}) {
             my $host = lc($url->host);
 
-    		if (!defined($dnssecInfo->{$host})) {
-    			my $answer = $resolver->query($url->host.'.', 'RRSIG');
-    			$dnssecInfo->{$host} = ($answer && $answer->header->ancount > 0);
+    		if (!exists($dnssecInfo->{$host})) {
+    			my $answer = $resolver->query($host.'.', 'A');
+    			$dnssecInfo->{$host} = ($answer && scalar(grep { "RRSIG" eq $_->type } $answer->answer) > 0);
     		}
 
             $dnssec = $dnssec || $dnssecInfo->{$host};
 
     		if ($dnssec) {
-    			if (!defined($daneInfo->{$host})) {
-    				my $answer = $resolver->query('_443._tcp.'.$url->host.'.', 'TLSA');
+    			if (!exists($daneInfo->{$host})) {
+    				my $answer = $resolver->query('_443._tcp.'.$host.'.', 'TLSA');
     				$daneInfo->{$host} = ($answer && $answer->header->ancount > 0);
     			}
 
@@ -169,126 +204,42 @@ say STDERR 'generating HTML';
 
 my $h = HTML::Tiny->new;
 
-my $j = JSON::XS->new->utf8->pretty;
+my $content = Template::Liquid
+    ->parse(join('', read_file(File::Spec->catfile(dirname(__FILE__), qw(inc preamble.html)))))
+    ->render(TODAY => $TODAY);
 
-say '<!doctype html>';
+$content .= $h->open('table', { class => 'sortable table table-striped'});
 
-say($h->open('html', {'lang' => 'en'}));
+$content .= $h->open('thead');
 
-say <<"END";
-<head>
-  <meta charset="utf-8">
-  <title>RDAP Deployment Dashboard</title>
-  <link rel="alternate" type="application/rss+xml" href="rss.xml">
-  <script type="module" src="https://about.rdap.org/assets/scaffold.js"></script>
-  <script type="text/javascript" src="./sorttable.js"></script>
-  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
-  <style>
-      .world-map {
-          width:67%;
-          margin:1em auto;
-      }
-      figcaption {
-          text-align:center;
-      }
+foreach my $col (qw(TLD Type Domains RDAP Added HTTPS? DNSSEC? DANE?)) {
+    my $attrs = {};
 
-      .world-map figcaption {
-          font-weight:bold;
-      }
+    if ('Domains' eq $col) {
+        $attrs->{style} = 'text-align: right';
 
-      .pie-chart figcaption {
-          font-style:italic;
-          font-size:smaller;
-      }
-      #world-map {
-          width:100%;
-          height:50wh;
-      }
-      .pie-chart {
-          min-width:275px;
-          float:left;
-          height:75wh;
-      }
-      .dums {
-          font-variant-numeric: tabular-nums;
-      }
-  </style>
-</head>
-END
+    } else {
+        $attrs->{class} = 'text-center';
 
-say($h->open('body'));
+    }
 
-say <<"END";
-<div class="container">
+    $content .= $h->th($attrs, $col);
+}
 
-<p>This page tracks the deployment of <a href="https://about.rdap.org">RDAP</a> among <a href="https://en.wikipedia.org/wiki/Top-level_domain" rel="noopener" target="_new">top-level domains</a>. It is updated once per day <em>(last update: $TODAY)</em>.</p>
+$content .= $h->close('thead');
 
-<p>Description of columns:</p>
-<ul>
-	<li><em>TLD</em> - the TLD name. Hover to see the A-label version of IDN TLDs.</li>
-	<li><em>Type</em> - the "type" of the TLD. This comes from the <a href="https://www.iana.org/domains/root/db">IANA root zone database</a>.</li>
-    <li><em>Domains</em> - the approximate number of second-level domains under the TLD (taken from various public sources)</li>
-	<li><em>Port 43</em> - whether a whois server is registered for the TLD at IANA. Some TLDs have whois servers even if IANA has no entry</li>
-	<li><em>RDAP</em> - whether there is an RDAP Base URL in the <a href="https://www.iana.org/assignments/rdap-dns/rdap-dns.xhtml">Bootstrap Service Registry</a></li>
-	<li><em>Added</em> - the date that an RDAP Base URL was first observed for this TLD in the Bootstrap Registry</li>
-	<li><em>HTTPS</em> - whether at least one URL in the registry for this TLD has the <tt>https://</tt> scheme</li>
-	<li><em>DNSSEC</em> - whether at least one URL in the registry for this TLD has a host which is covered by a valid <tt>RRSIG</tt> record</li>
-	<li><em>DANE</em> - whether at least one URL in the registry for this TLD has a corresponding <tt>TLSA</tt> record (this record is not validated at the moment)</li>
-</ul>
+$content .= $h->open('tbody');
 
-<figure class="world-map">
-    <figcaption>World map showing ccTLD RDAP deployments</figcaption>
-    <div id="world-map"></div>
-</figure>
-
-<div style="width:75%;margin: 2em auto 1em auto">
-    
-    <div style="text-align:center"><strong>RDAP deployment by TLD type (based on approximate # domains)</strong></div>
-
-    <figure class="pie-chart">
-        <div id="all-chart"></div>
-        <figcaption style="text-decoration: underline;text-decoration-style: dashed" title="includes infrastructure TLDs">All TLDs</figcaption>
-    </figure>
-
-    <figure class="pie-chart">
-        <div id="generic-chart"></div>
-        <figcaption style="text-decoration: underline;text-decoration-style: dashed" title="includes sponsored and restricted TLDs">Generic TLDs</figcaption>
-    </figure>
-
-    <figure class="pie-chart">
-        <div id="country-code-chart"></div>
-        <figcaption style="text-decoration: underline;text-decoration-style: dashed" title="includes IDN ccTLDs">Country-code TLDs</figcaption>
-    </figure>
-
-</div>
-
-<table class="sortable table table-striped">
-	<thead>
-		<tr>
-			<th class="text-center">TLD</th>
-			<th class="text-center">Type</th>
-            <th class="text-right">Domains</th>
-			<th class="text-center">RDAP</th>
-			<th class="text-center">Added</th>
-			<th class="text-center">HTTPS?</th>
-			<th class="text-center">DNSSEC?</th>
-			<th class="text-center">DANE?</th>
-		</tr>
-	</thead>
-END
-
-say($h->open('tbody'));
-
-my @map_data = (['Country', 'Deployment']);
+my @map_data = ([qw(Country Deployment)]);
 
 my $stats = {
     'all' => [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0]],
 };
 
 my $stats_type_map = {
-    'sponsored' => 'generic',
-    'generic-restricted' => 'generic',
-    'idn-country-code' => 'country-code',
+    'sponsored'             => 'generic',
+    'generic-restricted'    => 'generic',
+    'idn-country-code'      => 'country-code',
 };
 
 my $sth = $db->prepare(q{SELECT * FROM `rdap_deployment_report` ORDER BY `tld` ASC});
@@ -302,7 +253,7 @@ while (my $ref = $sth->fetchrow_hashref) {
 }
 
 foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
-    say($h->open('tr', {scope => 'row'}));
+    $content .= $h->open('tr', {scope => 'row'});
 
     my $row = anon $ref;
 
@@ -315,78 +266,59 @@ foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
     $stats->{'all'}->[1+$row->rdap]->[1] += $row->dums;
     $stats->{$stats_type}->[1+$row->rdap]->[1] += $row->dums;
 
-    say($h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.($row->tld =~ /^xn--/i ? idn_to_unicode($row->tld) : $row->tld)));
-    say($h->td({class => 'text-center type'}, $row->type));
-    say($h->td({class => 'text-right dums'}, format_number($row->dums)));
-    say($h->td({class => 'text-center text-'.($row->rdap ? 'success' : 'danger')}, $row->rdap ? 'Yes' : 'No'));
-    say($h->td({class => 'text-center text-'.($row->rdap ? 'success' : 'danger')}, $row->rdap_enabled_on || '-'));
-    say($h->td({class => 'text-center text-'.($row->https ? 'success' : 'danger')}, $row->https ? 'Yes' : 'No'));
-    say($h->td({class => 'text-center text-'.($row->dnssec ? 'success' : 'danger')}, $row->dnssec ? 'Yes' : 'No'));
-    say($h->td({class => 'text-center text-'.($row->dane ? 'success' : 'danger')}, $row->dane ? 'Yes' : 'No'));
+    $content .= $h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld));
+    $content .= $h->td({class => 'text-center type'}, $row->type);
+    $content .= $h->td({class => 'dums', style => 'text-align:right'}, format_number($row->dums));
+    $content .= $h->td({class => 'text-center text-'.($row->rdap ? 'success' : 'danger')}, $row->rdap ? 'Yes' : 'No');
+    $content .= $h->td({class => 'text-center text-'.($row->rdap ? 'success' : 'danger')}, $row->rdap_enabled_on || '-');
+    $content .= $h->td({class => 'text-center text-'.($row->https ? 'success' : 'danger')}, $row->https ? 'Yes' : 'No');
+    $content .= $h->td({class => 'text-center text-'.($row->dnssec ? 'success' : 'danger')}, $row->dnssec ? 'Yes' : 'No');
+    $content .= $h->td({class => 'text-center text-'.($row->dane ? 'success' : 'danger')}, $row->dane ? 'Yes' : 'No');
 
     if ('country-code' eq $row->type) {
         my $cc = uc('uk' eq $row->tld ? 'gb' : $row->tld);
         push(@map_data, [$cc, $row->rdap]) ;
     }
 
-    say($h->close('tr'));
+    $content .= $h->close('tr');
 }
 
-# TODO
+$content .= $h->close('tbody');
+$content .= $h->close('table');
 
-say($h->close('tbody'));
-say($h->close('table'));
+my $json = JSON::XS->new->utf8;
 
-my $mapData = $j->encode(\@map_data);
-my $statsData = $j->encode($stats);
+$content .= $h->script(sprintf('drawCharts(%s, %s)', $json->encode(\@map_data), $json->encode($stats)));
 
-say <<"END";
-<script type="text/javascript">
-  google.charts.load('current', {
-    'packages':['corechart', 'geochart'],
-  });
-  google.charts.setOnLoadCallback(drawCharts);
+say Template::Liquid
+    ->parse(mirror_str(PAGE_TEMPLATE))
+    ->render(
+        site => {
+            description => '',
+            title       => 'RDAP.ORG',
+        },
 
-  function drawCharts() {
-    var mapData = google.visualization.arrayToDataTable($mapData);
+        page => {
+            title => 'RDAP Deployment Dashboard',
 
-    var mapOptions = {
-        'title':'Deployment of RDAP among ccTLDs',
-        'legend':'none',
-        'colorAxis': {'colors': ['#eee', '#080']}
-    };
+            stylesheets => [qw(
+                /assets/style.css
+            )],
 
-    var map = new google.visualization.GeoChart(document.getElementById('world-map'));
+            scripts => [qw(
+                /assets/sorttable.js
+                /assets/chart.js
+                https://www.gstatic.com/charts/loader.js
+            )],
 
-    map.draw(mapData, mapOptions);
-
-    var statsData = $statsData;
-
-    var categories = ['all', 'generic', 'country-code'];
-    for (var i = 0 ; i < categories.length ; i++) {
-        var category = categories[i];
-        var data = google.visualization.arrayToDataTable(statsData[category]);
-        var chart = new google.visualization.PieChart(document.getElementById(category + '-chart'));
-        var chartOptions = {
-            'legend': 'none',
-            'pieSliceText': 'label',
-            'slices': {
-                0: { 'color': '#eee' },
-                1: { 'color': '#080' },
+            alternate => {
+                type => 'application/rss+xml',
+                href => 'rss.xml'
             },
-        };
-        chart.draw(data, chartOptions);
-    }
+        },
 
-  }
-</script>
-END
-
-say($h->close('div'));
-
-say($h->close('body'));
-
-say($h->close('html'));
+        content => $content,
+    );
 
 say STDERR 'done';
 
@@ -409,26 +341,18 @@ sub clean_int {
     return int($int);
 }
 
-sub idn2 {
-    my ($input, @args) = @_;
+sub idn_to_unicode {
+    my $alabel = shift;
 
-    my $pid = open2(my $out, my $in, q{idn2}, @args);
-
-    $in->binmode(':utf8');
-    $in->print($input)."\n";
-    $in->close;
-
-    $out->binmode(':utf8');
-
-    my $output = $out->getline;
-    chomp($output);
-
-    $out->close;
-
-    waitpid($pid, 0);
-
-    return $output;
+    return $ulabels->{$alabel} || $alabel;
 }
 
-sub idn_to_unicode  { idn2(qw(--quiet --decode), @_) }
-sub idn_to_ascii    { idn2(qw(--quiet), @_) }
+sub idn_to_ascii {
+    my $ulabel = shift;
+
+    foreach my $alabel (keys(%{$ulabels})) {
+        return $alabel if ($ulabels->{$alabel} eq $ulabel);
+    }
+
+    return $ulabel;
+}

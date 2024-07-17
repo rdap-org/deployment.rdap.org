@@ -73,7 +73,8 @@ jobs:
             HTML::Tiny \
             Net::RDAP \
             Number::Format \
-            Object::Anon
+            Object::Anon \
+            Template::Liquid
 
       - name: checkout
         uses: actions/checkout@v4
@@ -96,7 +97,10 @@ jobs:
       - name: create site directory
         run: |
           mkdir -v _site
-          cp -v ./sorttable.js _site/
+
+      - name: copy assets
+        run: |
+          cp -Rv assets _site/
 
       - name: generate dashboard
         run: |

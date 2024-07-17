@@ -1,0 +1,32 @@
+.world-map {
+    width: 67%;
+    margin: 1em auto;
+}
+
+figcaption {
+    text-align: center;
+}
+
+.world-map figcaption {
+    font-weight: bold;
+}
+
+.pie-chart figcaption {
+    font-style: italic;
+    font-size: smaller;
+}
+
+#world-map {
+    width: 100%;
+    height: 50wh;
+}
+
+.pie-chart {
+    min-width: 275px;
+    float: left;
+    height: 75wh;
+}
+
+.dums {
+    font-variant-numeric: tabular-nums;
+}

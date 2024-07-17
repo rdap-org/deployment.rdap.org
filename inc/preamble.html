@@ -1,0 +1,40 @@
+<p>This page tracks the deployment of <a href="https://about.rdap.org">RDAP</a> among <a href="https://en.wikipedia.org/wiki/Top-level_domain" rel="noopener" target="_new">top-level domains</a>. It is updated once per day <em>(last update: {{ TODAY | escape }})</em>.</p>
+
+<p>Description of columns:</p>
+<ul>
+	<li><em>TLD</em> - the TLD name. Hover to see the A-label version of IDN TLDs.</li>
+	<li><em>Type</em> - the "type" of the TLD. This comes from the <a href="https://www.iana.org/domains/root/db">IANA root zone database</a>.</li>
+    <li><em>Domains</em> - the approximate number of second-level domains under the TLD (taken from various public sources)</li>
+	<li><em>Port 43</em> - whether a whois server is registered for the TLD at IANA. Some TLDs have whois servers even if IANA has no entry</li>
+	<li><em>RDAP</em> - whether there is an RDAP Base URL in the <a href="https://www.iana.org/assignments/rdap-dns/rdap-dns.xhtml">Bootstrap Service Registry</a></li>
+	<li><em>Added</em> - the date that an RDAP Base URL was first observed for this TLD in the Bootstrap Registry</li>
+	<li><em>HTTPS</em> - whether at least one URL in the registry for this TLD has the <tt>https://</tt> scheme</li>
+	<li><em>DNSSEC</em> - whether at least one URL in the registry for this TLD has a host which is covered by a valid <tt>RRSIG</tt> record</li>
+	<li><em>DANE</em> - whether at least one URL in the registry for this TLD has a corresponding <tt>TLSA</tt> record (this record is not validated at the moment)</li>
+</ul>
+
+<figure class="world-map">
+    <figcaption>World map showing ccTLD RDAP deployments</figcaption>
+    <div id="world-map"></div>
+</figure>
+
+<div style="width:75%;margin: 2em auto 1em auto">
+    
+    <div style="text-align:center"><strong>RDAP deployment by TLD type (based on approximate # domains)</strong></div>
+
+    <figure class="pie-chart">
+        <div id="all-chart"></div>
+        <figcaption style="text-decoration: underline;text-decoration-style: dashed" title="includes infrastructure TLDs">All TLDs</figcaption>
+    </figure>
+
+    <figure class="pie-chart">
+        <div id="generic-chart"></div>
+        <figcaption style="text-decoration: underline;text-decoration-style: dashed" title="includes sponsored and restricted TLDs">Generic TLDs</figcaption>
+    </figure>
+
+    <figure class="pie-chart">
+        <div id="country-code-chart"></div>
+        <figcaption style="text-decoration: underline;text-decoration-style: dashed" title="includes IDN ccTLDs">Country-code TLDs</figcaption>
+    </figure>
+
+</div>
