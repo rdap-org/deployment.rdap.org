@@ -299,7 +299,7 @@ say Template::Liquid
         },
 
         page => {
-            title => 'RDAP Deployment Dashboard',
+            title => 'Deployment Dashboard',
 
             stylesheets => [qw(
                 /assets/style.css
