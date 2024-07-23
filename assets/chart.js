@@ -9,9 +9,10 @@ function drawCharts(mapData, statsData) {
     map.draw(
       google.visualization.arrayToDataTable(mapData),
       {
-        title:      'Deployment of RDAP among ccTLDs',
-        legend:     'none',
-        colorAxis:  {'colors': ['#eee', '#080']},
+        title:            'Deployment of RDAP among ccTLDs',
+        legend:           'none',
+        colorAxis:        {'colors': ['#eee', '#080']},
+        backgroundColor:  {fill:'transparent'},
       }
     );
 
@@ -26,6 +27,7 @@ function drawCharts(mapData, statsData) {
         data,
         {
           legend: 'none',
+          backgroundColor: {fill:'transparent'},
           pieSliceText: 'label',
           slices: {
             0: { 'color': '#eee' },
