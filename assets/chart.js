@@ -1,7 +1,18 @@
 function drawCharts(mapData, statsData) {
-  google.charts.load('current', {
-    'packages':['corechart', 'geochart'],
-  });
+
+  let c1, c2;
+
+  if (window.matchMedia && true === window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    c1 = '#666';
+    c2 = '#393';
+
+  } else {
+    c1 = '#eee';
+    c2 = '#080';
+
+  }
+
+  google.charts.load('current', {'packages':['corechart', 'geochart']});
 
   google.charts.setOnLoadCallback(function() {
     const map = new google.visualization.GeoChart(document.getElementById('world-map'));
@@ -11,7 +22,7 @@ function drawCharts(mapData, statsData) {
       {
         title:            'Deployment of RDAP among ccTLDs',
         legend:           'none',
-        colorAxis:        {'colors': ['#eee', '#080']},
+        colorAxis:        {'colors': [c1, c2]},
         backgroundColor:  {fill:'transparent'},
       }
     );
@@ -19,19 +30,19 @@ function drawCharts(mapData, statsData) {
     const categories = ['all', 'generic', 'country-code'];
 
     for (var i = 0 ; i < categories.length ; i++) {
-      const category = categories[i];
-      const data = google.visualization.arrayToDataTable(statsData[category]);
-      const chart = new google.visualization.PieChart(document.getElementById(category + '-chart'));
+      const category  = categories[i];
+      const data      = google.visualization.arrayToDataTable(statsData[category]);
+      const chart     = new google.visualization.PieChart(document.getElementById(category + '-chart'));
 
       chart.draw(
         data,
         {
-          legend: 'none',
-          backgroundColor: {fill:'transparent'},
-          pieSliceText: 'label',
+          legend:           'none',
+          backgroundColor:  {fill:'transparent'},
+          pieSliceText:     'label',
           slices: {
-            0: { 'color': '#eee' },
-            1: { 'color': '#080' },
+            0: { 'color': c1 },
+            1: { 'color': c2 },
           },
         }
       );
