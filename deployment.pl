@@ -333,7 +333,7 @@ foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
 
     if ('country-code' eq $row->type) {
         my $cc = uc('uk' eq $row->tld ? 'gb' : $row->tld);
-        push(@map_data, [$cc, $row->rdap]) ;
+        push(@map_data, [$cc, $row->rdap ? 1 : 0]) ;
     }
 
     $content .= $h->close('tr');
