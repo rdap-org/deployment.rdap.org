@@ -225,7 +225,7 @@ foreach my $tld (@tlds) {
     }
 
     if (!exists($records{$tld})) {
-        my @values = (
+        $isth->execute(
             $tld,
             $type{$tld},
             $rdap,
@@ -236,23 +236,19 @@ foreach my $tld (@tlds) {
             $rdap_enabled_on,
         );
 
-        $isth->execute(@values);
-
         say STDERR sprintf('inserted new record for .%s', $tld);
 
     } else {
-        my @values = (
+        $usth->execute(
             $type{$tld},
             $rdap,
             $https,
             $dnssec,
             $dane,
             $dums{$tld},
-            $date,
             $rdap_enabled_on,
+            $tld,
         );
-
-        $usth->execute(@values);
 
         say STDERR sprintf('updated .%s', $tld);
     }
