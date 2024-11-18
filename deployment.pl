@@ -217,7 +217,7 @@ foreach my $tld (@tlds) {
             last URL if ($dnssec && $dane);
     	}
 
-        $rdap_enabled_on = $records{$tld}->rdap_enabled_on || $TODAY;
+        $rdap_enabled_on = (exists($records{$tld}) ? $records{$tld}->rdap_enabled_on : $TODAY);
 
     } else {
         $rdap_enabled_on = undef;
@@ -287,7 +287,7 @@ $content .= $h->open('tbody');
 my @map_data = ([qw(Country Deployment)]);
 
 my $stats = {
-    'all' => [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0]],
+    'all' => [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0], ['Stealth', 0]],
 };
 
 my $stats_type_map = {
@@ -314,29 +314,52 @@ foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
     my $stats_type = $stats_type_map->{$row->type} || $row->type;
 
     if (!$stats->{$stats_type}) {
-        $stats->{$stats_type} = [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0]];
+        #
+        # vivify stats data structure for this TLD type
+        #
+        $stats->{$stats_type} = [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0], ['Stealth', 0]];
     }
 
     my $stealth = exists($stealth{$row->tld});
 
-    $stats->{'all'}->[1+$row->rdap]->[1] += $row->dums;
-    $stats->{$stats_type}->[1+$row->rdap]->[1] += $row->dums;
+    my $idx = ($row->rdap ? 2 : ($stealth ? 3 : 1));
+    $stats->{'all'}->[$idx]->[1] += $row->dums;
+    $stats->{$stats_type}->[$idx]->[1] += $row->dums;
 
     $content .= $h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld));
     $content .= $h->td({class => 'text-center type'}, $row->type);
     $content .= $h->td({class => 'dums', style => 'text-align:right'}, format_number($row->dums));
-    $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : ($stealth ? 'warning' : 'danger'))}, $row->rdap ? 'Yes' : ($stealth ? 'No*' : 'No'));
+    $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : ($stealth ? 'warning' : 'danger'))}, $row->rdap ? 'Yes' : ($stealth ? '<span title="See footnote">No*</span>' : 'No'));
     $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : 'danger')}, $row->rdap_enabled_on || '-');
     $content .= $h->td({class => 'text-center text-'.($row->https  ? 'success' : 'danger')}, $row->https ? 'Yes' : 'No');
     $content .= $h->td({class => 'text-center text-'.($row->dnssec ? 'success' : 'danger')}, $row->dnssec ? 'Yes' : 'No');
     $content .= $h->td({class => 'text-center text-'.($row->dane   ? 'success' : 'danger')}, $row->dane ? 'Yes' : 'No');
 
-    if ('country-code' eq $row->type) {
-        my $cc = uc('uk' eq $row->tld ? 'gb' : $row->tld);
-        push(@map_data, [$cc, $row->rdap ? 1 : 0]) ;
-    }
-
     $content .= $h->close('tr');
+
+    if ('country-code' eq $row->type) {
+        #
+        # skip .gb, as we don't want its status to clobber that of .uk. If
+        # .gb ever starts creating delegations, things could get
+        # complicated...
+        #
+        next if ('gb' eq $row->tld);
+
+        #
+        # special treatment for .uk, as the Google Charts API only
+        # recognises "GB" as the country code for the UK
+        #
+        my $cc = uc('uk' eq $row->tld ? 'GB' : $row->tld);
+
+        #
+        # Has RDAP: 1
+        # Stealth RDAP: 0.5
+        # No RDAP: 0
+        #
+        my $value = ($row->rdap ? 1 : ($stealth ? 0.5 : 0));
+
+        push(@map_data, [$cc, $value]);
+    }
 }
 
 $content .= $h->close('tbody');
