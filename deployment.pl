@@ -368,7 +368,7 @@ $content .= $h->close('table');
 if (scalar(keys(%stealth)) > 0) {
     $content .= $h->p($h->em(
         '* This TLD has a '
-        .$h->a({target => '_new', href => 'https://regiops.net/row13-agenda#:~:text=15:00,Stealth%20RDAP'}, 'Stealth RDAP')
+        .$h->a({target => '_new', href => 'https://regiops.net/event/13th-registration-operations-workshop-row13-online-event#:~:text=15:00,Stealth%20RDAP'}, 'Stealth RDAP')
         .' Server.'
     ));
 }
