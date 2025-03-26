@@ -189,8 +189,8 @@ my $resolver = Net::DNS::Resolver->new(
 my ($dnssecInfo, $daneInfo);
 foreach my $tld (@tlds) {
 
-	my $rdap    = exists($enabled{$tld});
-	my $https   = $rdap && (0 < scalar(grep { 'https' eq $_->scheme } @{$enabled{$tld}}));
+	my $rdap            = exists($enabled{$tld});
+	my $https           = $rdap && (0 < scalar(grep { 'https' eq $_->scheme } @{$enabled{$tld}}));
 
 	my ($dnssec, $dane, $rdap_enabled_on);
 
@@ -217,11 +217,13 @@ foreach my $tld (@tlds) {
             last URL if ($dnssec && $dane);
     	}
 
-        $rdap_enabled_on = (exists($records{$tld}) ? $records{$tld}->rdap_enabled_on : $TODAY);
+        if (!exists($records{$tld}) || length($records{$tld}->rdap_enabled_on) < 1) {
+            $rdap_enabled_on = $TODAY;
 
-    } else {
-        $rdap_enabled_on = undef;
+        } else {
+            $rdap_enabled_on = $records{$tld}->rdap_enabled_on;
 
+        }
     }
 
     if (!exists($records{$tld})) {
