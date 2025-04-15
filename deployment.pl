@@ -330,7 +330,7 @@ foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
 
     $content .= $h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld));
     $content .= $h->td({class => 'text-center type'}, $row->type);
-    $content .= $h->td({class => 'dums', style => 'text-align:right'}, format_number($row->dums));
+    $content .= $h->td({class => 'dums', style => 'text-align:right'}, format_number(int($row->dums)));
     $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : ($stealth ? 'warning' : 'danger'))}, $row->rdap ? 'Yes' : ($stealth ? '<span title="See footnote">No*</span>' : 'No'));
     $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : 'danger')}, $row->rdap_enabled_on || '-');
     $content .= $h->td({class => 'text-center text-'.($row->https  ? 'success' : 'danger')}, $row->https ? 'Yes' : 'No');
