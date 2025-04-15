@@ -4,11 +4,13 @@ function drawCharts(mapData, statsData) {
 
   if (window.matchMedia && true === window.matchMedia("(prefers-color-scheme: dark)").matches) {
     c1 = '#666';
-    c2 = '#393';
+    c2 = '#686';
+    c3 = '#393';
 
   } else {
     c1 = '#eee';
-    c2 = '#080';
+    c2 = '#cdc';
+    c3 = '#080';
 
   }
 
@@ -22,8 +24,9 @@ function drawCharts(mapData, statsData) {
       {
         title:            'Deployment of RDAP among ccTLDs',
         legend:           'none',
-        colorAxis:        {'colors': [c1, c2]},
+        colorAxis:        {'colors': [c1, c2, c3]},
         backgroundColor:  {fill:'transparent'},
+        datalessRegionColor: c1,
       }
     );
 
@@ -42,7 +45,8 @@ function drawCharts(mapData, statsData) {
           pieSliceText:     'label',
           slices: {
             0: { 'color': c1 },
-            1: { 'color': c2 },
+            1: { 'color': c3 },
+            2: { 'color': c2 },
           },
         }
       );
