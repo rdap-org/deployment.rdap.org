@@ -2,6 +2,7 @@
 use Carp;
 use DBI;
 use Data::Mirror qw(mirror_str mirror_fh mirror_json mirror_csv);
+use Getopt::Long;
 use Encode qw(encode decode);
 use File::Basename qw(dirname);
 use File::Slurp;
@@ -14,6 +15,7 @@ use Net::DNS::SEC;
 use Net::RDAP;
 use Number::Format qw(:subs);
 use Object::Anon;
+use Pod::Usage;
 use POSIX qw(strftime);
 use Template::Liquid;
 use constant {
@@ -29,6 +31,17 @@ use constant {
 use utf8;
 use feature qw(say);
 use strict;
+
+my ($help, $update, $render);
+pod2usage(1) unless (GetOptions(
+    help    => \$help,
+    update  => \$update,
+    render  => \$render,
+));
+
+pod2usage(0) if ($help);
+
+$update = $render = 1 if (!$update && !$render);
 
 my $TODAY = strftime("%Y-%m-%d", gmtime);
 
@@ -57,72 +70,6 @@ waitpid($pid, 0);
 
 say STDERR 'generated U-label mapping';
 
-my %stealth = map { lc($_) => 1 } grep { length > 0 } (split(/\n/, mirror_str(STEALTH_LIST)));
-
-say STDERR 'retrieved stealth server list';
-
-my %enabled;
-my $registry = Net::RDAP::Registry::IANARegistry->new(mirror_json(RDAP_BOOTSTRAP_URL));
-foreach my $service ($registry->services) {
-	foreach my $tld ($service->registries) {
-		$enabled{$tld} = [ $service->urls ];
-	}
-}
-
-say STDERR 'retrieved RDAP bootstrap registry';
-
-my %type;
-foreach my $row (@{mirror_csv(IANA_ROOT_DB_URL)}) {
-    next if ('ARRAY' ne ref($row) || scalar(@{$row}) < 1);
-
-    my $tld = clean_tld($row->[0]);
-
-    if ($tld =~ /^xn--/ && 'country-code' eq $row->[1]) {
-        $type{$tld} = 'idn-country-code';
-
-    } else {
-        $type{$tld} = $row->[1];
-
-    }
-}
-
-say STDERR 'retrieved IANA root zone database';
-
-my %dums;
-
-eval {
-    foreach my $row (@{mirror_csv(DOMAINTOOLS_STATS_URL)}) {
-        $dums{clean_tld((split(/[ \r\n]+/, $row->[1], 2))[0])} = clean_int($row->[2]);
-    }
-
-    say STDERR 'retrieved DUM stats from DomainTools';
-};
-
-eval {
-    foreach my $row (@{mirror_csv(STATDNS_STATS_URL)}) {
-        next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
-        $dums{$row->[1]} = $row->[9];
-    }
-
-    say STDERR 'retrieved DUM stats from StatDNS';
-};
-
-eval {
-    foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
-        next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
-
-        my $tld = clean_tld([ split(/[ \r\n]+/, $row->[2], 2) ]->[0]);
-
-        $dums{$tld} = clean_int($row->[7]);
-    }
-
-    say STDERR 'retrieved DUM stats from nTLDStats';
-};
-
-say STDERR $@ if ($@);
-
-say STDERR 'retrieved DUM values';
-
 my $db = DBI->connect(
     'dbi:SQLite:dbname='.$ARGV[0],
     {
@@ -131,287 +78,366 @@ my $db = DBI->connect(
     },
 );
 
-$db->do(q{
-    CREATE TABLE IF NOT EXISTS rdap_deployment_report (
-        `id` INTEGER PRIMARY KEY,
-        `tld` TEXT,
-        `type` TEXT,
-        `rdap` INTEGER,
-        `https` INTEGER,
-        `dnssec` INTEGER,
-        `dane` INTEGER,
-        `dums` INTEGER,
-        `rdap_enabled_on` STRING DEFAULT NULL,
-        UNIQUE(tld COLLATE NOCASE)
-    )
-});
-
-my $isth = $db->prepare(q{
-    INSERT INTO `rdap_deployment_report`
-    (`tld`, `type`, `rdap`, `https`, `dnssec`, `dane`, `dums`, `rdap_enabled_on`)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-});
-
-my $usth = $db->prepare(q{
-    UPDATE `rdap_deployment_report`
-    SET `type`=?, `rdap`=?, `https`=?, `dnssec`=?, `dane`=?, `dums`=?, `rdap_enabled_on`=?
-    WHERE (`tld`=?)
-});
-
 say STDERR 'connected to database';
 
-my $ssth = $db->prepare(q{SELECT * FROM `rdap_deployment_report`});
-$ssth->execute;
+update_db() if ($update);
 
-my $dsth = $db->prepare(q{DELETE FROM `rdap_deployment_report` WHERE (`tld`=?)});
-
-my %records;
-while (my $row = $ssth->fetchrow_hashref) {
-    $row = anon($row);
-    if (none { $_ eq $row->tld } @tlds) {
-        say STDERR sprintf('.%s no longer exists, deleting', $row->tld);
-        $dsth->execute($row->tld);
-
-    } else {
-        $records{$row->tld} = $row;
-
-    }
-}
-
-my $resolver = Net::DNS::Resolver->new(
-    'nameservers'       => [qw(1.1.1.1)],
-    'dnssec'            => 1,
-    'usevc'             => 1,
-    'persistent_tcp'    => 1,
-    'tcp_timeout'       => 10,
-);
-
-my ($dnssecInfo, $daneInfo);
-foreach my $tld (@tlds) {
-
-	my $rdap            = exists($enabled{$tld});
-	my $https           = $rdap && (0 < scalar(grep { 'https' eq $_->scheme } @{$enabled{$tld}}));
-
-	my ($dnssec, $dane, $rdap_enabled_on);
-
-    if ($rdap) {
-    	URL: foreach my $url (@{$enabled{$tld}}) {
-            my $host = lc($url->host);
-
-    		if (!exists($dnssecInfo->{$host})) {
-    			my $answer = $resolver->query($host.'.', 'A');
-    			$dnssecInfo->{$host} = ($answer && scalar(grep { "RRSIG" eq $_->type } $answer->answer) > 0);
-    		}
-
-            $dnssec = $dnssec || $dnssecInfo->{$host};
-
-    		if ($dnssec) {
-    			if (!exists($daneInfo->{$host})) {
-    				my $answer = $resolver->query('_443._tcp.'.$host.'.', 'TLSA');
-    				$daneInfo->{$host} = ($answer && $answer->header->ancount > 0);
-    			}
-
-    			$dane = $dane || $daneInfo->{$host};
-    		}
-
-            last URL if ($dnssec && $dane);
-    	}
-
-        if (!exists($records{$tld}) || length($records{$tld}->rdap_enabled_on) < 1) {
-            $rdap_enabled_on = $TODAY;
-
-        } else {
-            $rdap_enabled_on = $records{$tld}->rdap_enabled_on;
-
-        }
-    }
-
-    if (!exists($records{$tld})) {
-        $isth->execute(
-            $tld,
-            $type{$tld},
-            $rdap,
-            $https,
-            $dnssec,
-            $dane,
-            $dums{$tld},
-            $rdap_enabled_on,
-        );
-
-        say STDERR sprintf('inserted new record for .%s', $tld);
-
-    } else {
-        $usth->execute(
-            $type{$tld},
-            $rdap,
-            $https,
-            $dnssec,
-            $dane,
-            $dums{$tld},
-            $rdap_enabled_on,
-            $tld,
-        );
-
-        say STDERR sprintf('updated .%s', $tld);
-    }
-}
-
-say STDERR 'generating HTML';
-
-my $h = HTML::Tiny->new;
-
-my $content = Template::Liquid
-    ->parse(join('', read_file(File::Spec->catfile(dirname(__FILE__), qw(inc preamble.html)))))
-    ->render(TODAY => $TODAY);
-
-$content .= $h->open('table', { class => 'sortable table table-striped'});
-
-$content .= $h->open('thead');
-
-foreach my $col (qw(TLD Type Domains RDAP Added HTTPS? DNSSEC? DANE?)) {
-    my $attrs = {};
-
-    if ('Domains' eq $col) {
-        $attrs->{style} = 'text-align: right';
-
-    } else {
-        $attrs->{class} = 'text-center';
-
-    }
-
-    $content .= $h->th($attrs, $col);
-}
-
-$content .= $h->close('thead');
-
-$content .= $h->open('tbody');
-
-my @map_data = ([qw(Country Deployment)]);
-
-my $stats = {
-    'all' => [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0], ['Stealth', 0]],
-};
-
-my $stats_type_map = {
-    'sponsored'             => 'generic',
-    'generic-restricted'    => 'generic',
-    'idn-country-code'      => 'country-code',
-};
-
-my $sth = $db->prepare(q{SELECT * FROM `rdap_deployment_report` ORDER BY `tld` ASC});
-
-$sth->execute;
-
-my @rows;
-
-while (my $ref = $sth->fetchrow_hashref) {
-    push (@rows, $ref);
-}
-
-foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
-    $content .= $h->open('tr', {scope => 'row'});
-
-    my $row = anon $ref;
-
-    my $stats_type = $stats_type_map->{$row->type} || $row->type;
-
-    if (!$stats->{$stats_type}) {
-        #
-        # vivify stats data structure for this TLD type
-        #
-        $stats->{$stats_type} = [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0], ['Stealth', 0]];
-    }
-
-    my $stealth = exists($stealth{$row->tld});
-
-    my $idx = ($row->rdap ? 2 : ($stealth ? 3 : 1));
-    $stats->{'all'}->[$idx]->[1] += $row->dums;
-    $stats->{$stats_type}->[$idx]->[1] += $row->dums;
-
-    $content .= $h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld));
-    $content .= $h->td({class => 'text-center type'}, $row->type);
-    $content .= $h->td({class => 'dums', style => 'text-align:right'}, format_number(int($row->dums)));
-    $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : ($stealth ? 'warning' : 'danger'))}, $row->rdap ? 'Yes' : ($stealth ? '<span title="See footnote">No*</span>' : 'No'));
-    $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : 'danger')}, $row->rdap_enabled_on || '-');
-    $content .= $h->td({class => 'text-center text-'.($row->https  ? 'success' : 'danger')}, $row->https ? 'Yes' : 'No');
-    $content .= $h->td({class => 'text-center text-'.($row->dnssec ? 'success' : 'danger')}, $row->dnssec ? 'Yes' : 'No');
-    $content .= $h->td({class => 'text-center text-'.($row->dane   ? 'success' : 'danger')}, $row->dane ? 'Yes' : 'No');
-
-    $content .= $h->close('tr');
-
-    if ('country-code' eq $row->type) {
-        #
-        # skip .gb, as we don't want its status to clobber that of .uk. If
-        # .gb ever starts creating delegations, things could get
-        # complicated...
-        #
-        next if ('gb' eq $row->tld);
-
-        #
-        # special treatment for .uk, as the Google Charts API only
-        # recognises "GB" as the country code for the UK
-        #
-        my $cc = uc('uk' eq $row->tld ? 'GB' : $row->tld);
-
-        #
-        # Has RDAP: 1
-        # Stealth RDAP: 0.5
-        # No RDAP: 0
-        #
-        my $value = ($row->rdap ? 1 : ($stealth ? 0.5 : 0));
-
-        push(@map_data, [$cc, $value]);
-    }
-}
-
-$content .= $h->close('tbody');
-$content .= $h->close('table');
-
-if (scalar(keys(%stealth)) > 0) {
-    $content .= $h->p($h->em(
-        '* This TLD has a '
-        .$h->a({target => '_new', href => 'https://regiops.net/event/13th-registration-operations-workshop-row13-online-event#:~:text=15:00,Stealth%20RDAP'}, 'Stealth RDAP')
-        .' Server.'
-    ));
-}
-
-my $json = JSON::XS->new->utf8;
-
-$content .= $h->script(sprintf('drawCharts(%s, %s)', $json->encode(\@map_data), $json->encode($stats)));
-
-say Template::Liquid
-    ->parse(mirror_str(PAGE_TEMPLATE))
-    ->render(
-        site => {
-            description => '',
-            title       => 'RDAP.ORG',
-        },
-
-        page => {
-            title => 'Deployment Dashboard',
-
-            stylesheets => [qw(
-                /assets/style.css
-            )],
-
-            scripts => [qw(
-                /assets/sorttable.js
-                /assets/chart.js
-                https://www.gstatic.com/charts/loader.js
-            )],
-
-            alternate => {
-                type => 'application/rss+xml',
-                href => 'rss.xml'
-            },
-        },
-
-        content => $content,
-    );
+render_html() if ($render);
 
 say STDERR 'done';
 
 exit(0);
+
+sub update_db {
+    $db->do(q{
+        CREATE TABLE IF NOT EXISTS rdap_deployment_report (
+            `id` INTEGER PRIMARY KEY,
+            `tld` TEXT,
+            `type` TEXT,
+            `rdap` INTEGER,
+            `https` INTEGER,
+            `dnssec` INTEGER,
+            `dane` INTEGER,
+            `dums` INTEGER,
+            `rdap_enabled_on` STRING DEFAULT NULL,
+            UNIQUE(tld COLLATE NOCASE)
+        )
+    });
+
+    my $isth = $db->prepare(q{
+        INSERT INTO `rdap_deployment_report`
+        (`tld`, `type`, `rdap`, `https`, `dnssec`, `dane`, `dums`, `rdap_enabled_on`)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    });
+
+    my $usth = $db->prepare(q{
+        UPDATE `rdap_deployment_report`
+        SET `type`=?, `rdap`=?, `https`=?, `dnssec`=?, `dane`=?, `dums`=?, `rdap_enabled_on`=?
+        WHERE (`tld`=?)
+    });
+
+    my %enabled;
+    my $registry = Net::RDAP::Registry::IANARegistry->new(mirror_json(RDAP_BOOTSTRAP_URL));
+    foreach my $service ($registry->services) {
+    	foreach my $tld ($service->registries) {
+    		$enabled{$tld} = [ $service->urls ];
+    	}
+    }
+
+    say STDERR 'retrieved RDAP bootstrap registry';
+
+    my %type;
+    foreach my $row (@{mirror_csv(IANA_ROOT_DB_URL)}) {
+        next if ('ARRAY' ne ref($row) || scalar(@{$row}) < 1);
+
+        my $tld = clean_tld($row->[0]);
+
+        if ($tld =~ /^xn--/ && 'country-code' eq $row->[1]) {
+            $type{$tld} = 'idn-country-code';
+
+        } else {
+            $type{$tld} = $row->[1];
+
+        }
+    }
+
+    say STDERR 'retrieved IANA root zone database';
+
+    my %dums;
+
+    eval {
+        foreach my $row (@{mirror_csv(DOMAINTOOLS_STATS_URL)}) {
+            $dums{clean_tld((split(/[ \r\n]+/, $row->[1], 2))[0])} = clean_int($row->[2]);
+        }
+
+        say STDERR 'retrieved DUM stats from DomainTools';
+    };
+
+    eval {
+        foreach my $row (@{mirror_csv(STATDNS_STATS_URL)}) {
+            next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
+            $dums{$row->[1]} = $row->[9];
+        }
+
+        say STDERR 'retrieved DUM stats from StatDNS';
+    };
+
+    eval {
+        foreach my $row (@{mirror_csv(NTLDSTATS_STATS_URL)}) {
+            next if ('ARRAY' ne ref($row) || scalar(@{$row}) != 10);
+
+            my $tld = clean_tld([ split(/[ \r\n]+/, $row->[2], 2) ]->[0]);
+
+            $dums{$tld} = clean_int($row->[7]);
+        }
+
+        say STDERR 'retrieved DUM stats from nTLDStats';
+    };
+
+    say STDERR $@ if ($@);
+
+    say STDERR 'retrieved DUM values';
+
+    my $ssth = $db->prepare(q{SELECT * FROM `rdap_deployment_report`});
+
+    my $dsth = $db->prepare(q{DELETE FROM `rdap_deployment_report` WHERE (`tld`=?)});
+
+    my %records;
+
+    $ssth->execute;
+    while (my $row = $ssth->fetchrow_hashref) {
+        $row = anon($row);
+        if (none { $_ eq $row->tld } @tlds) {
+            say STDERR sprintf('.%s no longer exists, deleting', $row->tld);
+            $dsth->execute($row->tld);
+
+        } else {
+            $records{$row->tld} = $row;
+
+        }
+    }
+
+    my $resolver = Net::DNS::Resolver->new(
+        'nameservers'       => [qw(1.1.1.1)],
+        'dnssec'            => 1,
+        'usevc'             => 1,
+        'persistent_tcp'    => 1,
+        'tcp_timeout'       => 10,
+    );
+
+    my ($dnssecInfo, $daneInfo);
+    foreach my $tld (@tlds) {
+
+    	my $rdap            = exists($enabled{$tld});
+    	my $https           = $rdap && (0 < scalar(grep { 'https' eq $_->scheme } @{$enabled{$tld}}));
+
+    	my ($dnssec, $dane, $rdap_enabled_on);
+
+        if ($rdap) {
+        	URL: foreach my $url (@{$enabled{$tld}}) {
+                my $host = lc($url->host);
+
+        		if (!exists($dnssecInfo->{$host})) {
+        			my $answer = $resolver->query($host.'.', 'A');
+        			$dnssecInfo->{$host} = ($answer && scalar(grep { "RRSIG" eq $_->type } $answer->answer) > 0);
+        		}
+
+                $dnssec = $dnssec || $dnssecInfo->{$host};
+
+        		if ($dnssec) {
+        			if (!exists($daneInfo->{$host})) {
+        				my $answer = $resolver->query('_443._tcp.'.$host.'.', 'TLSA');
+        				$daneInfo->{$host} = ($answer && $answer->header->ancount > 0);
+        			}
+
+        			$dane = $dane || $daneInfo->{$host};
+        		}
+
+                last URL if ($dnssec && $dane);
+        	}
+
+            if (!exists($records{$tld}) || length($records{$tld}->rdap_enabled_on) < 1) {
+                $rdap_enabled_on = $TODAY;
+
+            } else {
+                $rdap_enabled_on = $records{$tld}->rdap_enabled_on;
+
+            }
+        }
+
+        if (!exists($records{$tld})) {
+            $isth->execute(
+                $tld,
+                $type{$tld},
+                $rdap,
+                $https,
+                $dnssec,
+                $dane,
+                $dums{$tld},
+                $rdap_enabled_on,
+            );
+
+            say STDERR sprintf('inserted new record for .%s', $tld);
+
+        } else {
+            $usth->execute(
+                $type{$tld},
+                $rdap,
+                $https,
+                $dnssec,
+                $dane,
+                $dums{$tld},
+                $rdap_enabled_on,
+                $tld,
+            );
+
+            say STDERR sprintf('updated .%s', $tld);
+        }
+    }
+}
+
+sub render_html {
+    say STDERR 'generating HTML';
+
+    my %stealth = map { lc($_) => 1 } grep { length > 0 } (split(/\n/, mirror_str(STEALTH_LIST)));
+
+    say STDERR 'retrieved stealth server list';
+
+    my $h = HTML::Tiny->new;
+
+    my $content = Template::Liquid
+        ->parse(join('', read_file(File::Spec->catfile(dirname(__FILE__), qw(inc preamble.html)))))
+        ->render(TODAY => $TODAY);
+
+    $content .= $h->open('table', { class => 'sortable table table-striped'});
+
+    $content .= $h->open('thead');
+
+    foreach my $col (qw(TLD Type Domains RDAP Added HTTPS? DNSSEC? DANE?)) {
+        my $attrs = {};
+
+        if ('Domains' eq $col) {
+            $attrs->{style} = 'text-align: right';
+
+        } else {
+            $attrs->{class} = 'text-center';
+
+        }
+
+        $content .= $h->th($attrs, $col);
+    }
+
+    $content .= $h->close('thead');
+
+    $content .= $h->open('tbody');
+
+    my @map_data = ([qw(Country Deployment)]);
+
+    my $stats = {
+        'all' => [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0], ['Stealth', 0]],
+    };
+
+    my $stats_type_map = {
+        'sponsored'             => 'generic',
+        'generic-restricted'    => 'generic',
+        'idn-country-code'      => 'country-code',
+    };
+
+    my $sth = $db->prepare(q{SELECT * FROM `rdap_deployment_report` ORDER BY `tld` ASC});
+
+    $sth->execute;
+
+    my @rows;
+
+    while (my $ref = $sth->fetchrow_hashref) {
+        push (@rows, $ref);
+    }
+
+    foreach my $ref (sort { $b->{'dums'} <=> $a->{'dums'} } @rows) {
+        $content .= $h->open('tr', {scope => 'row'});
+
+        my $row = anon $ref;
+
+        my $stats_type = $stats_type_map->{$row->type} || $row->type;
+
+        if (!$stats->{$stats_type}) {
+            #
+            # vivify stats data structure for this TLD type
+            #
+            $stats->{$stats_type} = [['Deployment Status', 'Approx # Domains'], ['Not available', 0], ['Available', 0], ['Stealth', 0]];
+        }
+
+        my $stealth = exists($stealth{$row->tld});
+
+        my $idx = ($row->rdap ? 2 : ($stealth ? 3 : 1));
+        $stats->{'all'}->[$idx]->[1] += $row->dums;
+        $stats->{$stats_type}->[$idx]->[1] += $row->dums;
+
+        $content .= $h->td({class => 'text-center tld', title => '.'.$row->tld}, '.'.idn_to_unicode($row->tld));
+        $content .= $h->td({class => 'text-center type'}, $row->type);
+        $content .= $h->td({class => 'dums', style => 'text-align:right'}, format_number(int($row->dums)));
+        $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : ($stealth ? 'warning' : 'danger'))}, $row->rdap ? 'Yes' : ($stealth ? '<span title="See footnote">No*</span>' : 'No'));
+        $content .= $h->td({class => 'text-center text-'.($row->rdap   ? 'success' : 'danger')}, $row->rdap_enabled_on || '-');
+        $content .= $h->td({class => 'text-center text-'.($row->https  ? 'success' : 'danger')}, $row->https ? 'Yes' : 'No');
+        $content .= $h->td({class => 'text-center text-'.($row->dnssec ? 'success' : 'danger')}, $row->dnssec ? 'Yes' : 'No');
+        $content .= $h->td({class => 'text-center text-'.($row->dane   ? 'success' : 'danger')}, $row->dane ? 'Yes' : 'No');
+
+        $content .= $h->close('tr');
+
+        if ('country-code' eq $row->type) {
+            #
+            # skip .gb, as we don't want its status to clobber that of .uk. If
+            # .gb ever starts creating delegations, things could get
+            # complicated...
+            #
+            next if ('gb' eq $row->tld);
+
+            #
+            # special treatment for .uk, as the Google Charts API only
+            # recognises "GB" as the country code for the UK
+            #
+            my $cc = uc('uk' eq $row->tld ? 'GB' : $row->tld);
+
+            #
+            # Has RDAP: 1
+            # Stealth RDAP: 0.5
+            # No RDAP: 0
+            #
+            my $value = ($row->rdap ? 1 : ($stealth ? 0.5 : 0));
+
+            push(@map_data, [$cc, $value]);
+        }
+    }
+
+    $content .= $h->close('tbody');
+    $content .= $h->close('table');
+
+    if (scalar(keys(%stealth)) > 0) {
+        $content .= $h->p($h->em(
+            '* This TLD has a '
+            .$h->a({target => '_new', href => 'https://regiops.net/event/13th-registration-operations-workshop-row13-online-event#:~:text=15:00,Stealth%20RDAP'}, 'Stealth RDAP')
+            .' Server.'
+        ));
+    }
+
+    my $json = JSON::XS->new->utf8;
+
+    $content .= $h->script(sprintf(
+        'drawCharts(%s, %s)',
+        $json->encode(\@map_data),
+        $json->encode($stats)
+    ));
+
+    say Template::Liquid
+        ->parse(mirror_str(PAGE_TEMPLATE))
+        ->render(
+            site => {
+                description => '',
+                title       => 'RDAP.ORG',
+            },
+
+            page => {
+                title => 'Deployment Dashboard',
+
+                stylesheets => [qw(
+                    /assets/style.css
+                )],
+
+                scripts => [qw(
+                    /assets/sorttable.js
+                    /assets/chart.js
+                    https://www.gstatic.com/charts/loader.js
+                )],
+
+                alternate => {
+                    type => 'application/rss+xml',
+                    href => 'rss.xml'
+                },
+            },
+
+            content => $content,
+        );
+}
 
 sub clean_tld {
     my $tld = shift;
@@ -445,3 +471,23 @@ sub idn_to_ascii {
 
     return $ulabel;
 }
+
+=pod
+
+=head1 SYNOPSIS
+
+    deployment.pl [OPTIONS] DBFILE
+
+=over
+
+=item * --help - show this help
+
+=item * --update - update the SQLite databse only
+
+=item * --render - render the HTML only
+
+=back
+
+By default, the script will update the SQLite database B<and> render the HTML.
+
+=cut
