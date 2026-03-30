@@ -395,7 +395,7 @@ sub render_html {
     if (scalar(keys(%stealth)) > 0) {
         $content .= $h->p($h->em(
             '* This TLD has a '
-            .$h->a({target => '_new', href => 'https://regiops.net/event/13th-registration-operations-workshop-row13-online-event#:~:text=15:00,Stealth%20RDAP'}, 'Stealth RDAP')
+            .$h->a({target => '_new', href => 'https://row13.sched.com/event/26Xt0/stealth-rdap'}, 'Stealth RDAP')
             .' Server.'
         ));
     }
