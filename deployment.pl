@@ -21,7 +21,7 @@ use Template::Liquid;
 use constant {
     TLD_LIST_URL            => 'https://data.iana.org/TLD/tlds-alpha-by-domain.txt',
     RDAP_BOOTSTRAP_URL      => 'https://data.iana.org/rdap/dns.json',
-    IANA_ROOT_DB_URL        => 'https://importhtml.site/csv/?url=https%3A//www.iana.org/domains/root/db',
+    IANA_ROOT_DB_URL        => 'https://data.iana.org/TLD/v1/tlds.json',
     DOMAINTOOLS_STATS_URL   => 'https://importhtml.site/csv/?url=https%3A//research.domaintools.com/statistics/tld-counts/&idx=2',
     STATDNS_STATS_URL       => 'https://importhtml.site/csv/?url=https%3A//www.statdns.com/',
     NTLDSTATS_STATS_URL     => 'https://importhtml.site/csv/?url=https%3A//ntldstats.com/tld/',
@@ -127,16 +127,13 @@ sub update_db {
     say STDERR 'retrieved RDAP bootstrap registry';
 
     my %type;
-    foreach my $row (@{mirror_csv(IANA_ROOT_DB_URL)}) {
-        next if ('ARRAY' ne ref($row) || scalar(@{$row}) < 1);
 
-        my $tld = clean_tld($row->[0]);
-
-        if ($tld =~ /^xn--/ && 'country-code' eq $row->[1]) {
-            $type{$tld} = 'idn-country-code';
+    foreach my $tld (@{mirror_json(IANA_ROOT_DB_URL)->{domains}}) {
+        if ($tld->{name} =~ /xn--/ && 'country-code' eq $tld->{type}) {
+            $type{$tld->{name}} = 'idn-country-code';
 
         } else {
-            $type{$tld} = $row->[1];
+            $type{$tld->{name}} = $tld->{type};
 
         }
     }
@@ -318,6 +315,8 @@ sub render_html {
     };
 
     my $stats_type_map = {
+        'Generic'               => 'generic',
+        'Country Code'          => 'country-code',
         'sponsored'             => 'generic',
         'generic-restricted'    => 'generic',
         'idn-country-code'      => 'country-code',
